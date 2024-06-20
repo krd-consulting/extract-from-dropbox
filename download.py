@@ -23,31 +23,33 @@ def download_file(dropbox_object, filename):
 	output_path = output_path = os.path.join(EXTRACTED_FOLDER, filename_no_extension + extension)
 	
 	dropbox_object.files_download_to_file(output_path, '/' + filename)
-	
-	print(filename + " saved in " + output_path)
 
 	return filename_no_extension + extension
 
-
-with dropbox.Dropbox(oauth2_refresh_token=REFRESH_TOKEN, app_key=APP_KEY) as dbx:
-	result = dbx.files_list_folder('', recursive=False)
-	# TODO: use files_list_folder_continue 
+def download_files_from_entries(dropbox_object, entries):
 	successful_entries = {}
 	unsuccessful_entries = []
-	for entry in result.entries:
-		if(isinstance(entry, dropbox.files.FileMetadata)):
-			try:
-				successful_index = download_file(dbx, entry.name)
-			except dropbox.exceptions.ApiError as e:
-				logging.error('Error when downloading file: ' + entry.name + ':' + e.error)
-				unsuccessful_entries[entry]
-			except Exception as e:
-				raise e
-				unsuccessful_entries.append(entry)
-			else:
-				logging.info(f"LOCAL: {entry.name} extracted to {EXTRACTED_FOLDER}/{successful_index}")
-				successful_entries[successful_index] = entry
 
+
+	for entry in entries:
+		if(not isinstance(entry, dropbox.files.FileMetadata)): 
+			continue
+
+		try:
+			successful_index = download_file(dbx, entry.name)
+		except dropbox.exceptions.ApiError as e:
+			logging.error('Error when downloading file: ' + entry.name + ':' + e.error)
+			unsuccessful_entries[entry]
+		except Exception as e:
+			raise e
+			unsuccessful_entries.append(entry)
+		else:
+			logging.info(f"LOCAL: {entry.name} extracted to {EXTRACTED_FOLDER}/{successful_index}")
+			successful_entries[successful_index] = entry
+
+	return (successful_entries, unsuccessful_entries)
+
+def move_extracted_files(dropbox_object, successful_entries):
 	for filename, entry in successful_entries.items():
 		try:
 			dbx.files_move('/'+entry.name, '/' + EXTRACTED_FOLDER + '/' + filename)
@@ -56,3 +58,19 @@ with dropbox.Dropbox(oauth2_refresh_token=REFRESH_TOKEN, app_key=APP_KEY) as dbx
 			logging.error(e)
 		else:
 			logging.info(f"DROPBOX: {entry.name} moved to {EXTRACTED_FOLDER}/{filename}")
+
+
+with dropbox.Dropbox(oauth2_refresh_token=REFRESH_TOKEN, app_key=APP_KEY) as dbx:
+	result = dbx.files_list_folder('', recursive=False)
+	entries = result.entries
+	logging.info(f"seeing { len(entries)} files in Dropbox")
+
+	while(result.has_more):
+		result = dbx.files_list_folder_continue(result.cursor)
+		entries += result.entries
+		logging.info(f"seeing { len(entries)} files in Dropbox")
+	successful_entries, unsuccessful_entries = download_files_from_entries(dbx, entries)
+	move_extracted_files(dbx, successful_entries)
+
+
+	
