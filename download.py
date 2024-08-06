@@ -10,7 +10,8 @@ load_dotenv()
 
 APP_KEY=os.environ['APP_KEY']
 REFRESH_TOKEN=os.environ['REFRESH_TOKEN']
-EXTRACTED_FOLDER=os.environ['EXTRACTED_FILES_FOLDER_NAME']
+LOCAL_EXTRACTED_FOLDER=os.environ['LOCAL_EXTRACTED_FOLDER']
+DROPBOX_EXTRACTED_FOLDER=os.environ['DROPBOX_EXTRACTED_FOLDER']
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(filename='download.log', encoding='utf-8', level=logging.DEBUG, format='%(asctime)s %(message)s')
@@ -21,7 +22,7 @@ def download_file(dropbox_object, filename):
 	timestamp = now.astimezone().strftime('%Y%m%d_%H%M')
 	filename_no_extension = Path(filename).stem + '_' + timestamp
 	extension = os.path.splitext(filename)[1]
-	output_folder = os.path.join(EXTRACTED_FOLDER, timestamp)
+	output_folder = os.path.join(LOCAL_EXTRACTED_FOLDER, timestamp)
 	output_path =  os.path.join(output_folder, filename_no_extension + extension)
 	if not os.path.exists(output_folder):
 		os.makedirs(output_folder)
@@ -48,7 +49,7 @@ def download_files_from_entries(dropbox_object, entries):
 			raise e
 			unsuccessful_entries.append(entry)
 		else:
-			logging.info(f"LOCAL: {entry.name} extracted to {EXTRACTED_FOLDER}/{successful_index}")
+			logging.info(f"LOCAL: {entry.name} extracted to {LOCAL_EXTRACTED_FOLDER}/{successful_index}")
 			successful_entries[successful_index] = entry
 
 	return (successful_entries, unsuccessful_entries)
@@ -56,12 +57,14 @@ def download_files_from_entries(dropbox_object, entries):
 def move_extracted_files(dropbox_object, successful_entries):
 	for filename, entry in successful_entries.items():
 		try:
-			dbx.files_move('/'+entry.name, '/' + EXTRACTED_FOLDER + '/' + filename)
+			file_path = '/' + entry.name
+			output_path = '/' + DROPBOX_EXTRACTED_FOLDER + '/' + filename
+			dbx.files_move(file_path, output_path)
 		except Exception as e:
-			logging.error('Error when moving extracted file: ' + entry.name)
+			logging.error('Error when moving extracted file: ' + entry.name + 'to: ' + str(output_path))
 			logging.error(e)
 		else:
-			logging.info(f"DROPBOX: {entry.name} moved to {EXTRACTED_FOLDER}/{filename}")
+			logging.info(f"DROPBOX: {file_path} moved to {output_path}")
 
 
 with dropbox.Dropbox(oauth2_refresh_token=REFRESH_TOKEN, app_key=APP_KEY) as dbx:
