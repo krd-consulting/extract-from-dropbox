@@ -18,11 +18,15 @@ logging.basicConfig(filename='download.log', encoding='utf-8', level=logging.DEB
 def download_file(dropbox_object, filename):
 	now = datetime.now()
 	
-	filename_no_extension = Path(filename).stem + '_' + now.astimezone().isoformat()
+	timestamp = now.astimezone().strftime('%Y%m%d_%H%M')
+	filename_no_extension = Path(filename).stem + '_' + timestamp
 	extension = os.path.splitext(filename)[1]
-	output_path = output_path = os.path.join(EXTRACTED_FOLDER, filename_no_extension + extension)
-	
-	dropbox_object.files_download_to_file(output_path, '/' + filename)
+	output_folder = os.path.join(EXTRACTED_FOLDER, timestamp)
+	output_path =  os.path.join(output_folder, filename_no_extension + extension)
+	if not os.path.exists(output_folder):
+		os.makedirs(output_folder)
+	path_to_download = os.path.join('/', filename)
+	dropbox_object.files_download_to_file(output_path, path_to_download)
 
 	return filename_no_extension + extension
 
