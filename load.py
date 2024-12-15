@@ -290,11 +290,6 @@ def populate_expense_allocations_table(session, items, filename : FinancialRepor
 if __name__ == '__main__':
     load_dotenv()
 
-    APP_KEY=os.environ['APP_KEY']
-    REFRESH_TOKEN=os.environ['REFRESH_TOKEN']
-    LOCAL_EXTRACTED_FOLDER=os.environ['LOCAL_EXTRACTED_FOLDER']
-    DROPBOX_EXTRACTED_FOLDER=os.environ['DROPBOX_EXTRACTED_FOLDER']
-
     SERVER = os.environ['DATABASE_SERVER']
     DATABASE = os.environ['DATABASE']
     ENGINE = sqlalchemy.create_engine('mssql+pyodbc://' + SERVER + '/' + DATABASE + '?TrustServerCertificate=yes&trusted_connection=yes&driver=ODBC+Driver+18+for+SQL+Server')
