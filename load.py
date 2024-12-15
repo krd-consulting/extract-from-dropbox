@@ -3,6 +3,7 @@ import openpyxl
 from pathlib import Path
 import pandas
 import sqlalchemy
+from dotenv import load_dotenv
 from typing import List
 from sqlalchemy import select
 from sqlalchemy.orm import Mapped
@@ -207,12 +208,6 @@ def read_new_contracts():
 def load_new_files(extracted_folder):
     pass
 
-server = 'DWH\\G4RHDWH'
-
-database = 'RHDB3'
-
-engine = sqlalchemy.create_engine('mssql+pyodbc://' + server + '/' + database + '?TrustServerCertificate=yes&trusted_connection=yes&driver=ODBC+Driver+18+for+SQL+Server')
-
 def read_financial_report(filename):
     path = filename
 
@@ -293,14 +288,25 @@ def populate_expense_allocations_table(session, items, filename : FinancialRepor
 # TODO: use watchdog to track for changes in Download folder
 
 if __name__ == '__main__':
+    load_dotenv()
+
+    APP_KEY=os.environ['APP_KEY']
+    REFRESH_TOKEN=os.environ['REFRESH_TOKEN']
+    LOCAL_EXTRACTED_FOLDER=os.environ['LOCAL_EXTRACTED_FOLDER']
+    DROPBOX_EXTRACTED_FOLDER=os.environ['DROPBOX_EXTRACTED_FOLDER']
+
+    SERVER = os.environ['DATABASE_SERVER']
+    DATABASE = os.environ['DATABASE']
+    ENGINE = sqlalchemy.create_engine('mssql+pyodbc://' + SERVER + '/' + DATABASE + '?TrustServerCertificate=yes&trusted_connection=yes&driver=ODBC+Driver+18+for+SQL+Server')
+
 	path = "BUDGET_AFCC_CRCD_24.xlsx"
 	filename = FileName(path)
 	budget_items = read_new_budget_items(path)
-	with sqlalchemy.orm.Session(engine) as session:
+	with sqlalchemy.orm.Session(ENGINE) as session:
 	    populate_budget_items_table(session, budget_items, filename)
 	    session.commit()
 
-	# with sqlalchemy.orm.Session(engine) as session:
+	# with sqlalchemy.orm.Session(ENGINE) as session:
 	#     filename = FinancialReportFileName("FINANCIAL-REPORT_AFCC_CRCD_24_Q3.xlsx")
 	#     expense_allocation_items = read_financial_report(filename.filename)
 	#     populate_expense_allocations_table(session, expense_allocation_items, filename)
