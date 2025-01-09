@@ -19,7 +19,7 @@ def download_file(dropbox_object, filename, local_extracted_folder):
 	path_to_download = os.path.join('/', filename)
 	dropbox_object.files_download_to_file(output_path, path_to_download)
 
-	return new_filename_no_extension + extension
+	return output_path
 
 def download_files_from_entries(dropbox_object, entries, local_extracted_folder):
 	successful_entries = {}
@@ -30,25 +30,29 @@ def download_files_from_entries(dropbox_object, entries, local_extracted_folder)
 			continue
 
 		try:
-			successful_index = download_file(dbx, entry.name, local_extracted_folder)
+			local_path = download_file(dropbox_object, entry.name, local_extracted_folder)
 		except dropbox.exceptions.ApiError as e:
 			logging.error('Error when downloading file: ' + entry.name + ':' + e.error)
-			unsuccessful_entries[entry]
+			unsuccessful_entries.append(entry)
 		except Exception as e:
 			raise e
 			unsuccessful_entries.append(entry)
 		else:
-			logging.info(f"LOCAL: {entry.name} extracted to {local_extracted_folder}/{successful_index}")
-			successful_entries[successful_index] = entry
+			logging.info(f"LOCAL: {entry.name} extracted to {local_path}")
+			successful_entries[local_path] = entry
 
 	return (successful_entries, unsuccessful_entries)
 
 def move_extracted_files(dropbox_object, successful_entries, dropbox_extracted_folder):
-	for filename, entry in successful_entries.items():
+	'''
+	Moves every successful entry to a specified `extracted` folder in Dropbox.
+	'''
+	for local_path, entry in successful_entries.items():
 		try:
 			file_path = '/' + entry.name
-			output_path = '/' + dropbox_extracted_folder + '/' + filename
-			dbx.files_move(file_path, output_path)
+			output_filename = Path(local_path).name
+			output_path = '/' + dropbox_extracted_folder + '/' + output_filename
+			dropbox_object.files_move(file_path, output_path)
 		except Exception as e:
 			logging.error('Error when moving extracted file: ' + entry.name + 'to: ' + str(output_path))
 			logging.error(e)
@@ -56,7 +60,7 @@ def move_extracted_files(dropbox_object, successful_entries, dropbox_extracted_f
 			logging.info(f"DROPBOX: {file_path} moved to {output_path}")
 
 
-def extract_from_dropbox(app_key=app_key, refresh_token=refresh_token, dropbox_extracted_folder=dropbox_extracted_folder, local_extracted_folder=local_extracted_folder):
+def extract_from_dropbox(app_key, refresh_token, dropbox_extracted_folder, local_extracted_folder):
 	with dropbox.Dropbox(oauth2_refresh_token=refresh_token, app_key=app_key) as dbx:
 		result = dbx.files_list_folder('', recursive=False)
 		entries = result.entries
@@ -69,6 +73,8 @@ def extract_from_dropbox(app_key=app_key, refresh_token=refresh_token, dropbox_e
 		successful_entries, unsuccessful_entries = download_files_from_entries(dbx, entries, local_extracted_folder)
 		move_extracted_files(dbx, successful_entries, dropbox_extracted_folder)
 
+		return (successful_entries, unsuccessful_entries)
+
 if __name__ == '__main__':
 	load_dotenv()
 
@@ -80,4 +86,4 @@ if __name__ == '__main__':
 	logger = logging.getLogger(__name__)
 	logging.basicConfig(filename='extract.log', encoding='utf-8', level=logging.DEBUG, format='%(asctime)s %(message)s')
 
-	extract_from_dropbox(app_key=APP_KEY, refresh_token=REFRESH_TOKEN, dropbox_extracted_folder=DROPBOX_EXTRACTED_FOLDER, local_extracted_folder=LOCAL_EXTRACTED_FOLDER)
+	extract_from_dropbox(app_key=APP_KEY, refresh_token=REFRESH_TOKEN, dropbox_extracted_folder=DROPBOX_EXTRACTED_FOLDER, local_extracted_folder=LOCAL_EXTRACTED_FOLDER)[0]

@@ -1,8 +1,10 @@
 import enum
 import openpyxl
+import os
 from pathlib import Path
 import pandas
 import sqlalchemy
+import sys
 from dotenv import load_dotenv
 from typing import List
 from sqlalchemy import select
@@ -76,6 +78,7 @@ class BudgetItem(Base):
     ID: Mapped[int] = mapped_column(primary_key=True)
     Name: Mapped[str] = mapped_column(sqlalchemy.VARCHAR(200), nullable=False)
     Amount: Mapped[int] = mapped_column(sqlalchemy.Numeric(10, 2))
+    Category: Mapped[str] = mapped_column(sqlalchemy.VARCHAR(200))
     ContractID: Mapped[int] = mapped_column(sqlalchemy.ForeignKey('Contracts2.ID'), nullable=False)
     FromFileName: Mapped[str] = mapped_column(sqlalchemy.VARCHAR(200), nullable=False)
 
@@ -137,7 +140,6 @@ def populate_budget_items_table(session, items, filename : FileName):
 
     for i, item in enumerate(items):
         items[i]['ContractID'] = contract_id
-        print(items[i])
 
     # TODO: log on insert
     # Optimize: bulk insert
@@ -173,7 +175,7 @@ def read_new_budget_items(path):
 
     bold_cells_count = 0
     items = []
-    for row in sheet.iter_rows(min_row=START[1], min_col=START[0], max_col=6):
+    for row in sheet.iter_rows(min_row=START[1], min_col=START[0], max_col=6):        
         item_name_cell = row[0]
         item_amount_cell = row[1]
 
@@ -272,20 +274,22 @@ def populate_expense_allocations_table(session, items, filename : FinancialRepor
     budget_items_statement = (
         select(BudgetItem)
         .where(BudgetItem.ContractID == contract.ID)
+        
     )
     budget_items = pandas.read_sql(budget_items_statement, session.bind)
     budget_items = budget_items.rename(columns={"ID": "BudgetItemID", "FromFileName": "FromBudgetFileName"})
 
-    all_expense_allocations = new_expense_allocations.merge(budget_items, on=['Name'], how='left')
-    with_matching_budget_item = new_expense_allocations.merge(budget_items, on=['Name'], how='inner')
-    # TODO: Log
+    # Add `Category` on the join clause to make sure expense allocations with the same name but different
+    # category get associated with the right budget items.
+    all_expense_allocations = new_expense_allocations.merge(budget_items, on=['Name', 'Category'], how='left')
+    with_matching_budget_item = new_expense_allocations.merge(budget_items, on=['Name', 'Category'], how='inner')
+    # TODO: Log expense allocations with no matched budget items
     no_matched_budget_items = all_expense_allocations[all_expense_allocations['BudgetItemID'].isnull()]
     print(no_matched_budget_items)
 
     new_items = with_matching_budget_item[['BudgetItemID', 'Q1AllocatedAmount', 'Q2AllocatedAmount', 'Q3AllocatedAmount', 'Q4AllocatedAmount', 'FromFileName', 'Quarter']]
+    print(new_items)
     new_items.to_sql(name='ExpenseAllocations', con=session.connection(), if_exists='append', index=False)
-
-# TODO: use watchdog to track for changes in Download folder
 
 if __name__ == '__main__':
     load_dotenv()
@@ -294,15 +298,19 @@ if __name__ == '__main__':
     DATABASE = os.environ['DATABASE']
     ENGINE = sqlalchemy.create_engine('mssql+pyodbc://' + SERVER + '/' + DATABASE + '?TrustServerCertificate=yes&trusted_connection=yes&driver=ODBC+Driver+18+for+SQL+Server')
 
-	path = "BUDGET_AFCC_CRCD_24.xlsx"
-	filename = FileName(path)
-	budget_items = read_new_budget_items(path)
-	with sqlalchemy.orm.Session(ENGINE) as session:
-	    populate_budget_items_table(session, budget_items, filename)
-	    session.commit()
-
-	# with sqlalchemy.orm.Session(ENGINE) as session:
-	#     filename = FinancialReportFileName("FINANCIAL-REPORT_AFCC_CRCD_24_Q3.xlsx")
-	#     expense_allocation_items = read_financial_report(filename.filename)
-	#     populate_expense_allocations_table(session, expense_allocation_items, filename)
-	#     session.commit()
+    # TODO: test manually loading in files
+    path_to_file = sys.argv[1]
+    # TODO: try to validate file name and throw error for invalid ones.
+    filename = FileName(path_to_file)
+    
+    if(filename.document_type == DocumentType.BUDGET):
+        budget_items = read_new_budget_items(path_to_file)
+        with sqlalchemy.orm.Session(ENGINE) as session:
+            populate_budget_items_table(session, budget_items, filename)
+            session.commit()
+    elif(filename.document_type == DocumentType.FINANCIAL_REPORT):
+        with sqlalchemy.orm.Session(ENGINE) as session:
+            report_filename = FinancialReportFileName(filename.filename)
+            expense_allocation_items = read_financial_report(report_filename.filename)
+            populate_expense_allocations_table(session, expense_allocation_items, report_filename)
+            session.commit()
