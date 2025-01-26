@@ -27,7 +27,12 @@ class FileName():
        self.document_type = DocumentType(self.filename_components[0])
        self.agency_code = self.filename_components[1]
        self.program_code = self.filename_components[2]
-       self.year = "20" + self.filename_components[3]
+       self.set_fiscal_year()
+
+    def set_fiscal_year(self):
+        startYear = f"20{int(self.filename_components[3]) - 1}"
+        endYear = self.filename_components[3]
+        self.year = f"{startYear}/{endYear}"
 
 class FinancialReportFileName(FileName):
     def set_components(self):
@@ -53,24 +58,23 @@ class Base(sqlalchemy.orm.DeclarativeBase):
     pass
 
 class Program(Base):
-    __tablename__ = 'Programs2'
+    __tablename__ = 'Programs'
 
     ID: Mapped[int] = mapped_column(primary_key=True)
+    CODE: Mapped[str] = mapped_column(sqlalchemy.String(32), nullable=False)
     Name: Mapped[str] = mapped_column(sqlalchemy.String(64), nullable=False)
-    Code: Mapped[str] = mapped_column(sqlalchemy.String(32), nullable=False)
 
     contracts: Mapped[List['Contract']] = relationship(back_populates='program') 
 
 class Contract(Base):
-    __tablename__ = 'Contracts2'
+    __tablename__ = 'Contracts'
 
     ID: Mapped[int] = mapped_column(primary_key=True)
-    Value: Mapped[int] = mapped_column(sqlalchemy.Numeric(10, 2))
-    ProgramID: Mapped[int] = mapped_column(sqlalchemy.ForeignKey('Programs2.ID'), nullable=False)
-    Year: Mapped[int] = mapped_column(sqlalchemy.Integer(), nullable=False)
+    TotalContract: Mapped[int] = mapped_column(sqlalchemy.Numeric(10, 2))
+    ProgramID: Mapped[int] = mapped_column(sqlalchemy.ForeignKey('Programs.ID'), nullable=False)
+    FiscalYear: Mapped[int] = mapped_column(sqlalchemy.NVARCHAR(8), nullable=False)
 
     program: Mapped['Program'] = relationship(back_populates='contracts')
-    budget_items: Mapped[List['BudgetItem']] = relationship(back_populates='contract')
 
 class BudgetItem(Base):
     __tablename__ = 'BudgetItems'
@@ -79,10 +83,9 @@ class BudgetItem(Base):
     Name: Mapped[str] = mapped_column(sqlalchemy.VARCHAR(200), nullable=False)
     Amount: Mapped[int] = mapped_column(sqlalchemy.Numeric(10, 2))
     Category: Mapped[str] = mapped_column(sqlalchemy.VARCHAR(200))
-    ContractID: Mapped[int] = mapped_column(sqlalchemy.ForeignKey('Contracts2.ID'), nullable=False)
+    ContractID: Mapped[int] = mapped_column(sqlalchemy.INTEGER, nullable=False)
     FromFileName: Mapped[str] = mapped_column(sqlalchemy.VARCHAR(200), nullable=False)
 
-    contract: Mapped['Contract'] = relationship(back_populates='budget_items')
     expense_allocations: Mapped[List['ExpenseAllocation']] = relationship(
             back_populates='budget_item',
             primaryjoin="and_(BudgetItem.ID == ExpenseAllocation.BudgetItemID)"
@@ -102,7 +105,7 @@ class ExpenseAllocation(Base):
 
     budget_item: Mapped['BudgetItem'] = relationship(back_populates='expense_allocations')
 
-def populate_budget_items_table(session, items, filename : FileName):
+def populate_budget_items_table(session, core_session, items, filename : FileName):
     """
     Using a filename, populate table with budget items from a contract
     (i.e. given program and year).
@@ -111,7 +114,7 @@ def populate_budget_items_table(session, items, filename : FileName):
     are deleted.
     """
 
-    contract = get_contract(session, filename.program_code, filename.year)
+    contract = get_contract(core_session, filename.program_code, filename.year)
 
     try:
         contract_id = contract.ID
@@ -153,10 +156,11 @@ def get_contract(session, program_code, year):
         select(Contract)
         .join(Contract.program)
         .where(
-            sqlalchemy.and_(Program.Code == program_code, Contract.Year == year)
+            sqlalchemy.and_(Program.CODE == program_code, Contract.FiscalYear == year)
         )
     )
 
+    # TODO: catch and log when No Result Found
     contract = session.scalars(statement).one()
 
     return contract
@@ -253,9 +257,9 @@ def read_financial_report(filename):
             })
     return items
 
-def populate_expense_allocations_table(session, items, filename : FinancialReportFileName):
+def populate_expense_allocations_table(session, core_session, items, filename : FinancialReportFileName):
     program_code = filename.program_code
-    contract = get_contract(session, program_code, filename.year)
+    contract = get_contract(core_session, program_code, filename.year)
     
     # Delete all old expense allocation items for a contract and quarter.
     delete_statement = (
@@ -295,7 +299,9 @@ if __name__ == '__main__':
     load_dotenv()
 
     SERVER = os.environ['DATABASE_SERVER']
+    CORE_DATABASE = os.environ['CORE_DATABASE']
     DATABASE = os.environ['DATABASE']
+    CORE_ENGINE = sqlalchemy.create_engine('mssql+pyodbc://' + SERVER + '/' + CORE_DATABASE + '?TrustServerCertificate=yes&trusted_connection=yes&driver=ODBC+Driver+18+for+SQL+Server')
     ENGINE = sqlalchemy.create_engine('mssql+pyodbc://' + SERVER + '/' + DATABASE + '?TrustServerCertificate=yes&trusted_connection=yes&driver=ODBC+Driver+18+for+SQL+Server')
 
     # TODO: test manually loading in files
@@ -306,11 +312,11 @@ if __name__ == '__main__':
     if(filename.document_type == DocumentType.BUDGET):
         budget_items = read_new_budget_items(path_to_file)
         with sqlalchemy.orm.Session(ENGINE) as session:
-            populate_budget_items_table(session, budget_items, filename)
+            populate_budget_items_table(session, sqlalchemy.orm.Session(CORE_ENGINE), budget_items, filename)
             session.commit()
     elif(filename.document_type == DocumentType.FINANCIAL_REPORT):
         with sqlalchemy.orm.Session(ENGINE) as session:
             report_filename = FinancialReportFileName(filename.filename)
             expense_allocation_items = read_financial_report(report_filename.filename)
-            populate_expense_allocations_table(session, expense_allocation_items, report_filename)
+            populate_expense_allocations_table(session, sqlalchemy.orm.Session(CORE_ENGINE), expense_allocation_items, report_filename)
             session.commit()
