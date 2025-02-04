@@ -25,7 +25,11 @@ if __name__ == '__main__':
     successfully_downloaded_entries = extract.extract_from_dropbox(app_key=APP_KEY, refresh_token=REFRESH_TOKEN, dropbox_extracted_folder=DROPBOX_EXTRACTED_FOLDER, local_extracted_folder=LOCAL_EXTRACTED_FOLDER)[0]
 
     for local_path, entry in successfully_downloaded_entries.items():
-        filename = load.FileName(local_path)
+        try:
+            filename = load.FileName(local_path)
+        except ValueError:
+            # TODO: log
+            continue
 
         if(filename.document_type == load.DocumentType.BUDGET):
             budget_items = load.read_new_budget_items(local_path)

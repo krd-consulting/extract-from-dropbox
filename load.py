@@ -1,4 +1,5 @@
 import enum
+import re
 import openpyxl
 import os
 from pathlib import Path
@@ -19,6 +20,11 @@ class DocumentType(enum.Enum):
 
 class FileName():
     def __init__(self, filename):
+        filename_match = re.search(
+            "^(?:FINANCIAL-REPORT|BUDGET)_[a-zA-Z]+_[a-zA-Z]+_[0-9]{2}_Q[1-4]{1}", 
+            Path(filename).stem)
+        if filename_match is None:
+            raise ValueError(f"Cannot load file: {filename} into data warehouse. It has an invalid filename.")
         self.filename = filename
         self.set_components()
 
@@ -114,10 +120,8 @@ def populate_budget_items_table(session, core_session, items, filename : FileNam
     are deleted.
     """
 
-    contract = get_contract(core_session, filename.program_code, filename.year)
-
     try:
-        contract_id = contract.ID
+        contract = get_contract(core_session, filename.program_code, filename.year)
     except sqlalchemy.exc.NoResultFound:
         # TODO: log
         # WorkFolder
@@ -133,6 +137,7 @@ def populate_budget_items_table(session, core_session, items, filename : FileNam
         # Source
         return
 
+    contract_id = contract.ID
     delete_statement = (
         sqlalchemy.delete(BudgetItem)
         .where(BudgetItem.ContractID == contract_id)
@@ -160,7 +165,6 @@ def get_contract(session, program_code, year):
         )
     )
 
-    # TODO: catch and log when No Result Found
     contract = session.scalars(statement).one()
 
     return contract
@@ -259,15 +263,31 @@ def read_financial_report(filename):
 
 def populate_expense_allocations_table(session, core_session, items, filename : FinancialReportFileName):
     program_code = filename.program_code
-    contract = get_contract(core_session, program_code, filename.year)
     
-    # Delete all old expense allocation items for a contract and quarter.
+    try:
+        contract = get_contract(core_session, program_code, filename.year)
+    except sqlalchemy.exc.NoResultFound:
+        # TODO: log
+        # WorkFolder
+        # FileName
+        # Operation
+        # Source
+        return
+    except sqlalchemy.exc.MultipleResultsFound:
+        # TODO: log
+        # WorkFolder
+        # FileName
+        # Operation
+        # Source
+        return
+    
+    # Delete all old expense allocation items.
+    # Only latest expense allocations for a budget should be left.
     delete_statement = (
         sqlalchemy.delete(ExpenseAllocation).where(
             sqlalchemy.and_(
                 BudgetItem.ID == ExpenseAllocation.BudgetItemID,
-                BudgetItem.ContractID == contract.ID,
-                ExpenseAllocation.Quarter == filename.quarter
+                BudgetItem.ContractID == contract.ID
             )
         )
     )
